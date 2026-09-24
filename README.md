@@ -2,4 +2,5 @@ web ui ffmpeg nvme transcoding udp to udp
 ```
 docker compose up -d
 ```
-![main window](/screenshot/main.png?raw=true "main window)
+
+![alt text](https://github.com/drq12/ffmpeg-manager/blob/main/main.png?raw=true)
