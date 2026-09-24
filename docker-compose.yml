@@ -1,0 +1,31 @@
+services:
+  transcoder:
+    build: .
+    restart: unless-stopped
+    network_mode: host      # multicast UDP; web UI on :8080
+    pid: host               # see ffmpeg processes and their memory (/proc)
+    privileged: true        # nsenter into the host mount namespace: system ffmpeg, nvidia-smi and /dev/nvidia*
+    stop_grace_period: 15s
+    environment:
+      - PORT=8080
+      - SERVICE_PROVIDER=null
+      - FFMPEG_BIN=ffmpeg    # set a full path if needed, e.g. /usr/local/bin/ffmpeg
+      # - HOST_EXEC=         # empty value: run ffmpeg inside the container instead of the host
+      - LANG_UI=ru           # interface language: ru | en | be | ja
+      # default values for the SD/HD template buttons in the "add channel" wizard
+      - SD_MEM_LIMIT=550     # ffmpeg memory limit, MB (0 = no limit)
+      - SD_PRESET=p4         # NVENC preset: p1..p7
+      - SD_SCALE_MODE=decoder    # cpu | gpu | decoder | none
+      - SD_BITRATE=1000      # video bitrate, kbps
+      - SD_MAXRATE=1000      # max bitrate, kbps
+      - SD_WIDTH=854         # output resolution width, px
+      - SD_HEIGHT=480        # output resolution height, px
+      - HD_MEM_LIMIT=650
+      - HD_PRESET=p1
+      - HD_SCALE_MODE=decoder
+      - HD_BITRATE=2000
+      - HD_MAXRATE=2000
+      - HD_WIDTH=1280
+      - HD_HEIGHT=720
+    volumes:
+      - ./data:/data

@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FFmpeg Transcoder</title>
+<!--LANG_PLACEHOLDER-->
+<style>
+:root{--bg:#0f1216;--c:#181d24;--t:#e6e9ee;--m:#8b95a5;--a:#4ea1ff;--g:#3ecf8e;--r:#ff5d5d;--y:#f5b942;--f:#b98aff;--b:#2a313b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:14px system-ui,sans-serif;padding:16px;max-width:1200px;margin:auto}
+h1{font-size:18px;margin:0 0 12px}.top{display:flex;justify-content:space-between;align-items:center}
+.sys{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:12px 0 18px}
+.box,.ch{background:var(--c);border:1px solid var(--b);border-radius:10px;padding:12px}
+.ml{display:flex;justify-content:space-between;color:var(--m);font-size:12px;margin-bottom:4px}.ml b{color:var(--t)}
+.bar{height:8px;background:var(--b);border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--a)}
+.ch{margin-bottom:10px}.hd{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.hd h2{font-size:16px;margin:0}
+.st{padding:2px 8px;border-radius:10px;font-size:12px;background:var(--b)}
+.running{color:var(--g)}.restarting,.starting{color:var(--y)}.stopped{color:var(--m)}.fallback{color:var(--f)}
+.mt{color:var(--m);font-size:12px;margin:6px 0}.mt b{color:var(--t);font-weight:500}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 8px;text-align:left;border-top:1px solid var(--b)}th{color:var(--m);font-weight:400}
+button{background:var(--b);color:var(--t);border:0;border-radius:6px;padding:6px 12px;cursor:pointer}button:hover{filter:brightness(1.3)}
+button:disabled{opacity:.35;cursor:default;filter:none}
+.p{background:var(--a);color:#001}.d{color:var(--r)}.sp{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+pre{background:#0a0d10;padding:8px;border-radius:6px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:12px;color:var(--m)}
+dialog{background:var(--c);color:var(--t);border:1px solid var(--b);border-radius:12px;width:min(900px,95vw)}
+dialog::backdrop{background:#000a}input[type=text],input[type=number],input[type=time],input:not([type]),select{background:var(--bg);color:var(--t);border:1px solid var(--b);border-radius:6px;padding:6px;width:100%}
+.g2{display:grid;grid-template-columns:2fr 2fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.or{display:grid;grid-template-columns:2fr 1.6fr .8fr repeat(6,1fr) auto;gap:6px;margin-bottom:6px}
+label{font-size:12px;color:var(--m)}
+.steps{display:flex;gap:6px;margin-bottom:14px}.steps span{flex:1;text-align:center;padding:6px;border-radius:6px;background:var(--bg);color:var(--m);font-size:12px}
+.steps span.on{background:var(--a);color:#001}
+.probe{background:var(--bg);border:1px solid var(--b);border-radius:8px;padding:10px;margin-top:10px;font-size:13px}
+.probe table{margin-top:4px}.chk{display:flex;align-items:center;gap:6px;font-size:13px;margin:6px 0}
+.chk input{width:auto}
+@media(max-width:700px){.g2,.or{grid-template-columns:1fr 1fr}}
+</style></head><body>
+<div class="top"><h1>FFmpeg Transcoder</h1>
+<span style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+<label class="chk"><input type="checkbox" id="autoRefresh" checked onchange="autoRefresh=this.checked"> <span data-t="topAutorefresh">Автообновление</span></label>
+<button onclick="location.href='/api/export'" data-t="topExport">Экспорт</button>
+<button onclick="document.getElementById('importFile').click()" data-t="topImport">Импорт</button>
+<input type="file" id="importFile" accept="application/json" style="display:none" onchange="doImport(this.files[0])">
+<button class="p" onclick="wiz.open()" data-t="topAdd">+ Добавить канал</button></span></div>
+<div class="sys" id="sys"></div><div id="chs"></div>
+
+<dialog id="D">
+<div class="steps"><span id="s1" data-t="step1Title">1. Проверка входа</span><span id="s2" data-t="step2Title">2. Параметры</span><span id="s3" data-t="step3Title">3. Подтверждение</span></div>
+
+<div id="step1">
+<div class="g2" style="grid-template-columns:2fr 2fr 1fr">
+<div><label data-t="fName">Имя канала</label><input id="name" data-t-ph="phName" placeholder="Канал 1"></div>
+<div><label data-t="fInput">Адрес входа (multicast IP или полный URL)</label><input id="inp" data-t-ph="phAddr" placeholder="224.0.0.0"></div>
+<div><label data-t="fPort">Порт</label><input id="inport" type="number" placeholder="1234" value="1234"></div></div>
+<button onclick="probe()" data-t="btnProbe">Проверить поток</button>
+<div id="probeBox" class="probe" style="display:none"></div>
+<p id="err1" class="d"></p>
+</div>
+
+<div id="step2" style="display:none">
+<div class="g2"><div style="grid-column:span 4"><label data-t="fTemplate">Шаблон</label>
+<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="tpl('hd')">HD</button><button onclick="tpl('sd')">SD</button><button onclick="tpl('both')">HD+SD</button></div></div></div>
+<div class="g2"><div><label data-t="fGpu">GPU (hwaccel_device)</label><input id="gpu" type="number" value="0" min="0"></div>
+<div><label data-t="fMem">Лимит памяти ffmpeg, МБ (0 = выкл.)</label><input id="mem" type="number" value="0" min="0"></div>
+<div class="chk" style="grid-column:span 2;align-items:end"><label class="chk"><input type="checkbox" id="fb"> <span data-t="fFallback">Заставка (SMPTE bars) при пропадании сигнала</span></label></div></div>
+<div class="g2">
+<div><label data-t="fPreset">Preset NVENC (p1 быстрее/ниже задержка — p7 медленнее/лучше качество)</label>
+<select id="preset"><option value="p1">p1</option><option value="p2">p2</option><option value="p3">p3</option>
+<option value="p4" selected data-t="presetBalanced">p4 (баланс)</option><option value="p5">p5</option><option value="p6">p6</option><option value="p7">p7</option></select></div>
+<div><label data-t="fBframes">B-кадры</label><select id="bframes"><option value="0" selected data-t="bf0">0 (мин. задержка)</option><option value="2" data-t="bf2">2 (лучше качество)</option></select></div>
+<div class="chk" style="align-items:end"><label class="chk"><input type="checkbox" id="aq" checked> <span data-t="fAq">Адаптивное квантование (AQ)</span></label></div>
+</div>
+<div class="g2" style="grid-template-columns:1fr 1fr 1fr">
+<div><label data-t="fScale">Масштабирование</label><select id="scaleMode" onchange="onScaleModeChange()">
+<option value="cpu" selected data-t="scaleCpu">Программно (scale)</option>
+<option value="gpu" data-t="scaleGpu">На GPU (scale_cuda)</option>
+<option value="decoder" data-t="scaleDecoder">На декодере (-resize)</option>
+<option value="none" data-t="scaleNone">Не использовать</option></select></div>
+<div id="resizeWBox" style="display:none"><label data-t="fResizeW">Ширина (-resize)</label><input id="resizeW" type="number" placeholder="1280"></div>
+<div id="resizeHBox" style="display:none"><label data-t="fResizeH">Высота (-resize)</label><input id="resizeH" type="number" placeholder="720"></div>
+</div>
+<p class="mt" id="resizeHint" data-t="resizeHint" style="display:none">«На декодере» задаёт одно разрешение сразу для всего канала (все выходы получат этот размер) —
+подходит только если у канала один выход или все выходы одного разрешения. Для разных разрешений
+(например HD+SD в одном канале) используйте «Программно» или «На GPU».</p>
+<label data-t="fOutputsLabel">Выходы: имя сервиса · адрес · порт · высота · видео kbps · maxrate · bufsize · аудио kbps · muxrate Мбит/с (пусто = авто расчёт)</label>
+<div id="outs"></div>
+<button onclick="row()" data-t="btnAddOutput">+ выход</button>
+<p id="err2" class="d"></p>
+</div>
+
+<div id="step3" style="display:none">
+<p class="mt" id="step3Note"></p>
+<div id="summary"></div>
+<p class="mt" id="cmdFinalLabel" data-t="cmdFinalLabel">Итоговая команда:</p><pre id="cmdPrev"></pre>
+<p id="err3" class="d"></p>
+</div>
+
+<div class="sp" style="margin-top:14px">
+<button onclick="D.close()" data-t="btnCancel">Отмена</button>
+<button id="bBack" onclick="wiz.back()" data-t="btnBack">Назад</button>
+<button id="bSkip" class="d" onclick="wiz.skip()" style="display:none" data-t="btnSkip">Пропустить проверку</button>
+<button id="bNext" class="p" onclick="wiz.next()" data-t="btnNext">Далее</button>
+<button id="bSave" class="p" onclick="save()" style="display:none" data-t="btnSaveAdd">Добавить канал</button>
+</div>
+</dialog>
+
+<dialog id="SchedD" style="width:min(420px,95vw)">
+<h3 id="schedTitle" style="margin-top:0">Расписание перезапуска</h3>
+<p class="mt" data-t="schedDesc">Канал будет автоматически перезапускаться каждый день в указанное время (перезапуск как по кнопке «Перезапуск»).</p>
+<div id="schedList"></div>
+<div style="display:flex;gap:6px;margin-top:10px"><input id="schedTime" type="time" style="max-width:140px"><button onclick="addSchedTime()" data-t="btnAddTime">+ добавить</button></div>
+<p id="schedErr" class="d"></p>
+<div class="sp" style="margin-top:14px"><button onclick="SchedD.close()" data-t="btnCancel">Отмена</button><button class="p" onclick="saveSched()" data-t="btnSave">Сохранить</button></div>
+</dialog>
+
+<script>
+// ---------- i18n ----------
+const I18N = {
+ru:{topAutorefresh:"Автообновление",topExport:"Экспорт",topImport:"Импорт",topAdd:"+ Добавить канал",
+ step1Title:"1. Проверка входа",step2Title:"2. Параметры",step3Title:"3. Подтверждение",
+ fName:"Имя канала",phName:"Канал 1",fInput:"Адрес входа (multicast IP или полный URL)",phAddr:"224.0.0.0",fPort:"Порт",
+ btnProbe:"Проверить поток",probeChecking:"Проверка потока…",probeFound:"Поток обнаружен",probeRes:"Разрешение",probeCodec:"Видеокодек",
+ probeAudio:"Аудио",probeAudioNone:"не обнаружено",probeFailPrefix:"Поток не отвечает: ",probeFailUnknown:"неизвестная ошибка",
+ errNeedNameInput:"Укажите имя канала и адрес входа",
+ fTemplate:"Шаблон",fGpu:"GPU (hwaccel_device)",fMem:"Лимит памяти ffmpeg, МБ (0 = выкл.)",
+ fFallback:"Заставка (SMPTE bars) при пропадании сигнала",
+ fPreset:"Preset NVENC (p1 быстрее/ниже задержка — p7 медленнее/лучше качество)",presetBalanced:"p4 (баланс)",
+ fBframes:"B-кадры",bf0:"0 (мин. задержка)",bf2:"2 (лучше качество)",fAq:"Адаптивное квантование (AQ)",
+ fScale:"Масштабирование",scaleCpu:"Программно (scale)",scaleGpu:"На GPU (scale_cuda)",scaleDecoder:"На декодере (-resize)",scaleNone:"Не использовать",
+ fResizeW:"Ширина (-resize)",fResizeH:"Высота (-resize)",
+ resizeHint:"«На декодере» задаёт одно разрешение сразу для всего канала (все выходы получат этот размер) — подходит только если у канала один выход или все выходы одного разрешения. Для разных разрешений (например HD+SD в одном канале) используйте «Программно» или «На GPU».",
+ fOutputsLabel:"Выходы: имя сервиса · адрес · порт · высота · видео kbps · maxrate · bufsize · аудио kbps · muxrate Мбит/с (пусто = авто расчёт)",
+ btnAddOutput:"+ выход",phService:"Имя сервиса",phHeight:"высота",phVideo:"видео",phMaxrate:"=видео",phBufsize:"=2×maxrate",phMux:"авто",
+ step3DisabledNote:"Канал будет добавлен в списке {b1}выключенным{b2} — запустите его кнопкой «Старт» после проверки.",
+ sumName:"Имя",sumInput:"Вход",sumGpu:"GPU",sumMem:"Лимит памяти",sumMemNone:"без лимита",sumFallback:"Заставка при пропадании",
+ onWord:"включена",offWord:"выключена",sumPresetBf:"Preset NVENC / B-кадры",sumAqScale:"AQ / масштаб",onShort:"вкл.",offShort:"выкл.",
+ scaleLblCpu:"программно",scaleLblGpu:"на GPU",scaleLblDecoder:"на декодере -resize",scaleLblNone:"не используется",
+ thService:"Сервис",thOutput:"Выход",thRes:"Разрешение",thVideo:"Видео",thAudio:"Аудио",thMux:"Muxrate",resNative:"как на входе",
+ cmdFinalLabel:"Итоговая команда:",
+ btnCancel:"Отмена",btnBack:"Назад",btnSkip:"Пропустить проверку",btnNext:"Далее",btnSaveAdd:"Добавить канал",btnSave:"Сохранить",
+ errProbeFirst:"Сначала проверьте поток (или нажмите «Пропустить проверку»)",errFillNameInput:"Заполните имя и вход",
+ errOutputs:"У каждого выхода должны быть адрес и видеобитрейт",
+ stRunning:"работает",stFallback:"заставка",stStarting:"запуск",stRestarting:"перезапуск",stStopped:"остановлен",
+ btnStart:"▶ Старт",btnStop:"■ Стоп",btnRestart:"↻ Перезапуск",btnSchedule:"🕐 Расписание",btnEdit:"Изменить",btnDelete:"Удалить",
+ lblInputPrefix:"вход:",fallbackOnSuffix:" · заставка вкл.",
+ statsUptime:"Аптайм",statsRestarts:"перезапусков",statsSinceRestart:"с последнего перезапуска",statsMemory:"память",
+ statsFps:"fps",statsSpeed:"скорость",statsBitrate:"битрейт",
+ logAndCmd:"Лог и команда",logLabel:"Лог (последние сообщения)",cmdLabel:"Команда запуска",btnCopy:"Копировать",
+ copiedWord:"Скопировано",noMessages:"нет сообщений",noChannels:"Каналов нет",
+ schedTitlePrefix:"Расписание перезапуска",schedDesc:"Канал будет автоматически перезапускаться каждый день в указанное время (перезапуск как по кнопке «Перезапуск»).",
+ schedEmpty:"Расписание пусто — канал не будет перезапускаться автоматически.",btnAddTime:"+ добавить",
+ confirmDelete:"Удалить канал?",importErrPrefix:"Ошибка импорта: ",
+ importOk1:"Импортировано каналов: ",importOk2:". Они добавлены выключенными — запустите нужные вручную.",
+ importReadFail:"Не удалось прочитать файл: ",
+ mbpsUnit:"Мбит/с",autoWord:"авто",durH:"ч",durM:"м",
+ sysCpu:"CPU",sysRam:"ОЗУ",sysFfmpegRss:"ffmpeg (RSS)",sysChannelsRunning:"Каналов работает",
+ sysGpuLabel:"GPU",sysVramLabel:"VRAM GPU",sysGpuUnavailable:"nvidia-smi недоступен"},
+en:{topAutorefresh:"Auto-refresh",topExport:"Export",topImport:"Import",topAdd:"+ Add channel",
+ step1Title:"1. Check input",step2Title:"2. Settings",step3Title:"3. Confirmation",
+ fName:"Channel name",phName:"Channel 1",fInput:"Input address (multicast IP or full URL)",phAddr:"224.0.0.0",fPort:"Port",
+ btnProbe:"Check stream",probeChecking:"Checking stream…",probeFound:"Stream found",probeRes:"Resolution",probeCodec:"Video codec",
+ probeAudio:"Audio",probeAudioNone:"not detected",probeFailPrefix:"Stream did not respond: ",probeFailUnknown:"unknown error",
+ errNeedNameInput:"Enter the channel name and input address",
+ fTemplate:"Template",fGpu:"GPU (hwaccel_device)",fMem:"ffmpeg memory limit, MB (0 = off)",
+ fFallback:"Test pattern (SMPTE bars) on signal loss",
+ fPreset:"NVENC preset (p1 faster/lower latency — p7 slower/better quality)",presetBalanced:"p4 (balanced)",
+ fBframes:"B-frames",bf0:"0 (min. latency)",bf2:"2 (better quality)",fAq:"Adaptive quantization (AQ)",
+ fScale:"Scaling",scaleCpu:"Software (scale)",scaleGpu:"On GPU (scale_cuda)",scaleDecoder:"On decoder (-resize)",scaleNone:"Do not use",
+ fResizeW:"Width (-resize)",fResizeH:"Height (-resize)",
+ resizeHint:'"On decoder" sets a single resolution for the whole channel at once (every output gets this size) — only suitable when the channel has one output or all outputs share the same resolution. For mixed resolutions (e.g. HD+SD in one channel) use "Software" or "On GPU".',
+ fOutputsLabel:"Outputs: service name · address · port · height · video kbps · maxrate · bufsize · audio kbps · muxrate Mbps (empty = auto)",
+ btnAddOutput:"+ output",phService:"Service name",phHeight:"height",phVideo:"video",phMaxrate:"=video",phBufsize:"=2×maxrate",phMux:"auto",
+ step3DisabledNote:"The channel will be added to the list {b1}disabled{b2} — start it with the “Start” button after checking it.",
+ sumName:"Name",sumInput:"Input",sumGpu:"GPU",sumMem:"Memory limit",sumMemNone:"no limit",sumFallback:"Test pattern on signal loss",
+ onWord:"enabled",offWord:"disabled",sumPresetBf:"NVENC preset / B-frames",sumAqScale:"AQ / scaling",onShort:"on",offShort:"off",
+ scaleLblCpu:"software",scaleLblGpu:"on GPU",scaleLblDecoder:"on decoder -resize",scaleLblNone:"not used",
+ thService:"Service",thOutput:"Output",thRes:"Resolution",thVideo:"Video",thAudio:"Audio",thMux:"Muxrate",resNative:"same as input",
+ cmdFinalLabel:"Final command:",
+ btnCancel:"Cancel",btnBack:"Back",btnSkip:"Skip check",btnNext:"Next",btnSaveAdd:"Add channel",btnSave:"Save",
+ errProbeFirst:"Check the stream first (or click “Skip check”)",errFillNameInput:"Fill in the name and input",
+ errOutputs:"Every output needs an address and a video bitrate",
+ stRunning:"running",stFallback:"test pattern",stStarting:"starting",stRestarting:"restarting",stStopped:"stopped",
+ btnStart:"▶ Start",btnStop:"■ Stop",btnRestart:"↻ Restart",btnSchedule:"🕐 Schedule",btnEdit:"Edit",btnDelete:"Delete",
+ lblInputPrefix:"input:",fallbackOnSuffix:" · test pattern on",
+ statsUptime:"Uptime",statsRestarts:"restarts",statsSinceRestart:"since last restart",statsMemory:"memory",
+ statsFps:"fps",statsSpeed:"speed",statsBitrate:"bitrate",
+ logAndCmd:"Log and command",logLabel:"Log (recent messages)",cmdLabel:"Launch command",btnCopy:"Copy",
+ copiedWord:"Copied",noMessages:"no messages",noChannels:"No channels",
+ schedTitlePrefix:"Restart schedule",schedDesc:"The channel will restart automatically every day at the specified times (same as clicking “Restart”).",
+ schedEmpty:"Schedule is empty — the channel will not restart automatically.",btnAddTime:"+ add",
+ confirmDelete:"Delete channel?",importErrPrefix:"Import error: ",
+ importOk1:"Channels imported: ",importOk2:". They were added disabled — start the ones you need manually.",
+ importReadFail:"Failed to read file: ",
+ mbpsUnit:"Mbps",autoWord:"auto",durH:"h",durM:"m",
+ sysCpu:"CPU",sysRam:"RAM",sysFfmpegRss:"ffmpeg (RSS)",sysChannelsRunning:"Channels running",
+ sysGpuLabel:"GPU",sysVramLabel:"VRAM GPU",sysGpuUnavailable:"nvidia-smi unavailable"},
+be:{topAutorefresh:"Аўтаабнаўленне",topExport:"Экспарт",topImport:"Імпарт",topAdd:"+ Дадаць канал",
+ step1Title:"1. Праверка ўваходу",step2Title:"2. Параметры",step3Title:"3. Пацвярджэнне",
+ fName:"Назва канала",phName:"Канал 1",fInput:"Адрас уваходу (multicast IP або поўны URL)",phAddr:"224.0.0.0",fPort:"Порт",
+ btnProbe:"Праверыць паток",probeChecking:"Праверка патоку…",probeFound:"Паток знойдзены",probeRes:"Раздзяленне",probeCodec:"Відэакодэк",
+ probeAudio:"Аудыё",probeAudioNone:"не выяўлена",probeFailPrefix:"Паток не адказвае: ",probeFailUnknown:"невядомая памылка",
+ errNeedNameInput:"Пазначце назву канала і адрас уваходу",
+ fTemplate:"Шаблон",fGpu:"GPU (hwaccel_device)",fMem:"Ліміт памяці ffmpeg, МБ (0 = выкл.)",
+ fFallback:"Застаўка (SMPTE bars) пры знікненні сігналу",
+ fPreset:"Preset NVENC (p1 хутчэй/менш затрымка — p7 павольней/лепшая якасць)",presetBalanced:"p4 (баланс)",
+ fBframes:"B-кадры",bf0:"0 (мін. затрымка)",bf2:"2 (лепшая якасць)",fAq:"Адаптыўнае квантаванне (AQ)",
+ fScale:"Маштабаванне",scaleCpu:"Праграмна (scale)",scaleGpu:"На GPU (scale_cuda)",scaleDecoder:"На дэкодары (-resize)",scaleNone:"Не выкарыстоўваць",
+ fResizeW:"Шырыня (-resize)",fResizeH:"Вышыня (-resize)",
+ resizeHint:"«На дэкодары» задае адно раздзяленне адразу для ўсяго канала (усе выхады атрымаюць гэты памер) — падыходзіць толькі калі ў канала адзін выхад або ўсе выхады аднаго раздзялення. Для розных раздзяленняў (напрыклад HD+SD у адным канале) выкарыстоўвайце «Праграмна» або «На GPU».",
+ fOutputsLabel:"Выхады: назва сэрвісу · адрас · порт · вышыня · відэа kbps · maxrate · bufsize · аудыё kbps · muxrate Мбіт/с (пуста = аўта разлік)",
+ btnAddOutput:"+ выхад",phService:"Назва сэрвісу",phHeight:"вышыня",phVideo:"відэа",phMaxrate:"=відэа",phBufsize:"=2×maxrate",phMux:"аўта",
+ step3DisabledNote:"Канал будзе дададзены ў спіс {b1}выключаным{b2} — запусціце яго кнопкай «Старт» пасля праверкі.",
+ sumName:"Назва",sumInput:"Уваход",sumGpu:"GPU",sumMem:"Ліміт памяці",sumMemNone:"без ліміту",sumFallback:"Застаўка пры знікненні",
+ onWord:"уключана",offWord:"выключана",sumPresetBf:"Preset NVENC / B-кадры",sumAqScale:"AQ / маштаб",onShort:"укл.",offShort:"выкл.",
+ scaleLblCpu:"праграмна",scaleLblGpu:"на GPU",scaleLblDecoder:"на дэкодары -resize",scaleLblNone:"не выкарыстоўваецца",
+ thService:"Сэрвіс",thOutput:"Выхад",thRes:"Раздзяленне",thVideo:"Відэа",thAudio:"Аудыё",thMux:"Muxrate",resNative:"як на ўваходзе",
+ cmdFinalLabel:"Выніковая каманда:",
+ btnCancel:"Адмена",btnBack:"Назад",btnSkip:"Прапусціць праверку",btnNext:"Далей",btnSaveAdd:"Дадаць канал",btnSave:"Захаваць",
+ errProbeFirst:"Спачатку праверце паток (або націсніце «Прапусціць праверку»)",errFillNameInput:"Запоўніце назву і ўваход",
+ errOutputs:"У кожнага выхаду павінны быць адрас і відэабітрэйт",
+ stRunning:"працуе",stFallback:"застаўка",stStarting:"запуск",stRestarting:"перазапуск",stStopped:"спынены",
+ btnStart:"▶ Старт",btnStop:"■ Спыніць",btnRestart:"↻ Перазапуск",btnSchedule:"🕐 Расклад",btnEdit:"Змяніць",btnDelete:"Выдаліць",
+ lblInputPrefix:"уваход:",fallbackOnSuffix:" · застаўка укл.",
+ statsUptime:"Час працы",statsRestarts:"перазапускаў",statsSinceRestart:"з апошняга перазапуску",statsMemory:"памяць",
+ statsFps:"fps",statsSpeed:"хуткасць",statsBitrate:"бітрэйт",
+ logAndCmd:"Лог і каманда",logLabel:"Лог (апошнія паведамленні)",cmdLabel:"Каманда запуску",btnCopy:"Капіяваць",
+ copiedWord:"Скапіявана",noMessages:"няма паведамленняў",noChannels:"Няма каналаў",
+ schedTitlePrefix:"Расклад перазапуску",schedDesc:"Канал будзе аўтаматычна перазапускацца кожны дзень у зададзены час (перазапуск як па кнопцы «Перазапуск»).",
+ schedEmpty:"Расклад пусты — канал не будзе перазапускацца аўтаматычна.",btnAddTime:"+ дадаць",
+ confirmDelete:"Выдаліць канал?",importErrPrefix:"Памылка імпарту: ",
+ importOk1:"Імпартавана каналаў: ",importOk2:". Яны дададзены выключанымі — запусціце патрэбныя ўручную.",
+ importReadFail:"Не ўдалося прачытаць файл: ",
+ mbpsUnit:"Мбіт/с",autoWord:"аўта",durH:"г",durM:"хв",
+ sysCpu:"CPU",sysRam:"АЗП",sysFfmpegRss:"ffmpeg (RSS)",sysChannelsRunning:"Каналы працуюць",
+ sysGpuLabel:"GPU",sysVramLabel:"VRAM GPU",sysGpuUnavailable:"nvidia-smi недаступны"},
+ja:{topAutorefresh:"自動更新",topExport:"エクスポート",topImport:"インポート",topAdd:"+ チャンネルを追加",
+ step1Title:"1. 入力の確認",step2Title:"2. 設定",step3Title:"3. 確認",
+ fName:"チャンネル名",phName:"チャンネル1",fInput:"入力アドレス（マルチキャストIPまたは完全なURL）",phAddr:"224.0.0.0",fPort:"ポート",
+ btnProbe:"ストリームを確認",probeChecking:"ストリームを確認中…",probeFound:"ストリームが見つかりました",probeRes:"解像度",probeCodec:"映像コーデック",
+ probeAudio:"音声",probeAudioNone:"検出されませんでした",probeFailPrefix:"ストリームが応答しません: ",probeFailUnknown:"不明なエラー",
+ errNeedNameInput:"チャンネル名と入力アドレスを入力してください",
+ fTemplate:"テンプレート",fGpu:"GPU (hwaccel_device)",fMem:"ffmpegのメモリ上限（MB、0=無効）",
+ fFallback:"信号消失時にテストパターン（SMPTEバー）を表示",
+ fPreset:"NVENCプリセット（p1は高速・低遅延、p7は低速・高画質）",presetBalanced:"p4（バランス）",
+ fBframes:"Bフレーム",bf0:"0（最小遅延）",bf2:"2（高画質）",fAq:"適応量子化（AQ）",
+ fScale:"スケーリング",scaleCpu:"ソフトウェア（scale）",scaleGpu:"GPU上（scale_cuda）",scaleDecoder:"デコーダ側（-resize）",scaleNone:"使用しない",
+ fResizeW:"幅（-resize）",fResizeH:"高さ（-resize）",
+ resizeHint:"「デコーダ側」はチャンネル全体に対して一つの解像度を一括で設定します（すべての出力がこのサイズになります）。出力が1つだけ、またはすべての出力が同じ解像度の場合にのみ適しています。異なる解像度（例：1つのチャンネルでHD+SD）を使う場合は「ソフトウェア」または「GPU上」を選んでください。",
+ fOutputsLabel:"出力: サービス名・アドレス・ポート・高さ・映像kbps・maxrate・bufsize・音声kbps・muxrate Mbps（空欄=自動計算）",
+ btnAddOutput:"+ 出力",phService:"サービス名",phHeight:"高さ",phVideo:"映像",phMaxrate:"=映像",phBufsize:"=2×maxrate",phMux:"自動",
+ step3DisabledNote:"チャンネルは{b1}無効{b2}な状態でリストに追加されます。確認後に「開始」ボタンで起動してください。",
+ sumName:"名前",sumInput:"入力",sumGpu:"GPU",sumMem:"メモリ上限",sumMemNone:"上限なし",sumFallback:"信号消失時のテストパターン",
+ onWord:"有効",offWord:"無効",sumPresetBf:"NVENCプリセット / Bフレーム",sumAqScale:"AQ / スケーリング",onShort:"オン",offShort:"オフ",
+ scaleLblCpu:"ソフトウェア",scaleLblGpu:"GPU上",scaleLblDecoder:"デコーダ側 -resize",scaleLblNone:"未使用",
+ thService:"サービス",thOutput:"出力",thRes:"解像度",thVideo:"映像",thAudio:"音声",thMux:"Muxrate",resNative:"入力と同じ",
+ cmdFinalLabel:"最終コマンド:",
+ btnCancel:"キャンセル",btnBack:"戻る",btnSkip:"確認をスキップ",btnNext:"次へ",btnSaveAdd:"チャンネルを追加",btnSave:"保存",
+ errProbeFirst:"まずストリームを確認してください（または「確認をスキップ」を押してください）",errFillNameInput:"名前と入力を入力してください",
+ errOutputs:"すべての出力にアドレスと映像ビットレートが必要です",
+ stRunning:"稼働中",stFallback:"テストパターン",stStarting:"起動中",stRestarting:"再起動中",stStopped:"停止",
+ btnStart:"▶ 開始",btnStop:"■ 停止",btnRestart:"↻ 再起動",btnSchedule:"🕐 スケジュール",btnEdit:"編集",btnDelete:"削除",
+ lblInputPrefix:"入力:",fallbackOnSuffix:"・テストパターン有効",
+ statsUptime:"稼働時間",statsRestarts:"再起動回数",statsSinceRestart:"最終再起動からの経過時間",statsMemory:"メモリ",
+ statsFps:"fps",statsSpeed:"速度",statsBitrate:"ビットレート",
+ logAndCmd:"ログとコマンド",logLabel:"ログ（最新のメッセージ）",cmdLabel:"起動コマンド",btnCopy:"コピー",
+ copiedWord:"コピーしました",noMessages:"メッセージはありません",noChannels:"チャンネルがありません",
+ schedTitlePrefix:"再起動スケジュール",schedDesc:"指定した時刻に毎日自動的にチャンネルが再起動します（「再起動」ボタンを押すのと同じです）。",
+ schedEmpty:"スケジュールは空です。チャンネルは自動的に再起動しません。",btnAddTime:"+ 追加",
+ confirmDelete:"チャンネルを削除しますか？",importErrPrefix:"インポートエラー: ",
+ importOk1:"インポートされたチャンネル数: ",importOk2:"。無効な状態で追加されました。必要なものは手動で開始してください。",
+ importReadFail:"ファイルを読み込めませんでした: ",
+ mbpsUnit:"Mbps",autoWord:"自動",durH:"時間",durM:"分",
+ sysCpu:"CPU",sysRam:"メモリ(RAM)",sysFfmpegRss:"ffmpeg (RSS)",sysChannelsRunning:"稼働中チャンネル",
+ sysGpuLabel:"GPU",sysVramLabel:"VRAM GPU",sysGpuUnavailable:"nvidia-smiが利用できません"}
+};
+const LANG = (window.APP_LANG && I18N[window.APP_LANG]) ? window.APP_LANG : 'ru';
+document.documentElement.lang = LANG;
+function t(key){return (I18N[LANG]&&I18N[LANG][key]!=null)?I18N[LANG][key]:((I18N.en&&I18N.en[key])||key)}
+function applyStaticI18n(){
+ document.querySelectorAll('[data-t]').forEach(el=>{el.textContent=t(el.dataset.t)});
+ document.querySelectorAll('[data-t-ph]').forEach(el=>{el.placeholder=t(el.dataset.tPh)});
+ $('#step3Note').innerHTML=t('step3DisabledNote').replace('{b1}','<b>').replace('{b2}','</b>');
+}
+const stLabel={running:'stRunning',fallback:'stFallback',starting:'stStarting',restarting:'stRestarting',stopped:'stStopped'};
+const scaleLbl={cpu:'scaleLblCpu',gpu:'scaleLblGpu',decoder:'scaleLblDecoder',none:'scaleLblNone'};
+
+// ---------- app ----------
+const $=s=>document.querySelector(s),D=$('#D'),O=$('#outs'),SchedD=$('#SchedD');let S={channels:[],sys:{}},open={},probed=null;
+const api=(m,u,b)=>fetch(u,{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined}).then(r=>r.json());
+const bar=(l,p,v)=>`<div class="ml"><span>${l}</span><b>${v}</b></div><div class="bar"><i style="width:${Math.min(p,100)}%"></i></div>`;
+const box=rows=>`<div class="box">${rows.join('<div style="height:7px"></div>')}</div>`;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dur=s=>s?`${Math.floor(s/3600)}${t('durH')} ${Math.floor(s%3600/60)}${t('durM')}`:'—';
+// address is stored as "host:port" (or a full URL for manual entry) - assembled/split here for separate fields
+function fullAddr(host,port){host=(host||'').trim();if(!host)return '';if(host.includes('://'))return host;return host+':'+(port||1234)}
+function splitAddr(s){s=s||'';if(s.includes('://'))return{host:s,port:''};const i=s.lastIndexOf(':');
+ if(i<0)return{host:s,port:'1234'};const port=s.slice(i+1);return /^\d+$/.test(port)?{host:s.slice(0,i),port}:{host:s,port:'1234'}}
+
+function render(){
+ const sp={}; document.querySelectorAll('.ch pre[data-cid]').forEach(p=>sp[p.dataset.cid+':'+p.dataset.k]=p.scrollTop);
+ const s=S.sys,m=s.mem,total=S.channels.length,running=S.channels.filter(c=>c.state!='stopped').length;
+ let h=box([bar(t('sysCpu'),s.cpu,s.cpu+'%'),bar(t('sysRam'),100*m.used/m.total,`${m.used} / ${m.total} МБ`)]);
+ h+=box([bar(t('sysFfmpegRss'),100*s.ffmpeg_rss/m.total,s.ffmpeg_rss+' МБ'),bar(t('sysChannelsRunning'),total?100*running/total:0,`${running} / ${total}`)]);
+ h+=s.gpus.length?s.gpus.map(g=>box([bar(`${t('sysGpuLabel')} ${g.i} · ${g.name} · ${g.temp}°C`,+g.util,g.util+'%'),bar(`${t('sysVramLabel')} ${g.i}`,100*g.mu/g.mt,`${g.mu} / ${g.mt} МБ`)])).join(''):`<div class="box">${t('sysGpuUnavailable')}</div>`;
+ $('#sys').innerHTML=h;
+ $('#chs').innerHTML=S.channels.map((c,idx)=>{const run=c.state!='stopped';return `<div class="ch"><div class="hd"><h2>${idx+1}. ${esc(c.name)}</h2>
+ <span class="st ${c.state}">${t(stLabel[c.state]||c.state)}</span><span class="mt">${t('lblInputPrefix')} <b>${esc(c.input)}</b> · GPU <b>${c.gpu}</b>${c.fallback?t('fallbackOnSuffix'):''}</span>
+ <span class="sp">
+ <button ${run?'disabled':''} onclick="act('${c.id}','start')">${t('btnStart')}</button>
+ <button ${run?'':'disabled'} onclick="act('${c.id}','stop')">${t('btnStop')}</button>
+ <button ${run?'':'disabled'} onclick="act('${c.id}','restart')">${t('btnRestart')}</button>
+ <button onclick="openSched('${c.id}')">${t('btnSchedule')}${c.schedule&&c.schedule.length?' ('+c.schedule.length+')':''}</button>
+ <button onclick="editCh('${c.id}')">${t('btnEdit')}</button><button class="d" onclick="del('${c.id}')">${t('btnDelete')}</button></span></div>
+ <div class="mt">${t('statsUptime')} <b>${dur(c.uptime)}</b> · ${t('statsRestarts')} <b>${c.restarts}</b> · ${t('statsSinceRestart')} <b>${c.since_restart!=null?dur(c.since_restart):'—'}</b> · ${t('statsMemory')} <b>${c.rss||0}${c.mem_limit?' / '+c.mem_limit:''} МБ</b> · ${t('statsFps')} <b>${c.stats.fps||'—'}</b> · ${t('statsSpeed')} <b>${c.stats.speed||'—'}</b> · ${t('statsBitrate')} <b>${c.stats.bitrate||'—'}</b></div>
+ <table><tr><th>${t('thService')}</th><th>${t('thOutput')}</th><th>${t('thRes')}</th><th>${t('thVideo')}</th><th>${t('thAudio')}</th><th>${t('thMux')}</th></tr>${c.outputs.map(o=>`<tr><td>${esc(o.name||c.name)}</td><td>${esc(o.url)}</td><td>${o.height?'x'+o.height:t('resNative')}</td><td>${o.vb}k / max ${o.maxrate||o.vb}k</td><td>${o.ab||96}k</td><td>${muxDisplay(o)}</td></tr>`).join('')}</table>
+ <details ${open[c.id]?'open':''} ontoggle="open['${c.id}']=this.open"><summary class="mt">${t('logAndCmd')}</summary>
+ <div class="mt" style="display:flex;justify-content:space-between;align-items:center">${t('logLabel')}<button onclick="copyTxt(this,${JSON.stringify(c.log.join('\n')||t('noMessages'))})">${t('btnCopy')}</button></div>
+ <pre data-cid="${c.id}" data-k="log">${esc(c.log.join('\n')||t('noMessages'))}</pre>
+ <div class="mt" style="display:flex;justify-content:space-between;align-items:center">${t('cmdLabel')}<button onclick="copyTxt(this,${JSON.stringify(c.cmd)})">${t('btnCopy')}</button></div>
+ <pre data-cid="${c.id}" data-k="cmd">${esc(c.cmd)}</pre></details></div>`}).join('')||`<p class="mt">${t('noChannels')}</p>`;
+ document.querySelectorAll('.ch pre[data-cid]').forEach(p=>{const k=sp[p.dataset.cid+':'+p.dataset.k];if(k)p.scrollTop=k});
+}
+function copyTxt(btn,txt){navigator.clipboard.writeText(txt).then(()=>{const tx=btn.textContent;btn.textContent=t('copiedWord');setTimeout(()=>btn.textContent=tx,1200)})}
+let autoRefresh=true,reqSeq=0,inflight=false;
+// seq guards against a race: if two state requests were in flight at once, only the latest response is applied,
+// even if it comes back before an older one.
+async function fetchState(){
+ const seq=++reqSeq;inflight=true;
+ try{const d=await(await fetch('/api/state')).json();if(seq===reqSeq){S=d;render()}}catch(e){}
+ finally{inflight=false}}
+async function tick(){
+ if(!autoRefresh)return;  // refresh paused via the checkbox in the top bar
+ if(window.getSelection&&window.getSelection().toString())return;  // don't disrupt text selection for copying
+ if(inflight)return;  // previous request hasn't finished yet (e.g. Stop waiting for the process to exit)
+ await fetchState()}
+// channel actions must always show the result immediately, even if auto-refresh is paused
+const act=async(id,a)=>{await api('POST',`/api/channels/${id}/${a}`);await fetchState()};
+const del=async id=>{if(confirm(t('confirmDelete'))){await api('DELETE','/api/channels/'+id);await fetchState()}};
+
+function row(o={}){const d=document.createElement('div');d.className='or';const f=(c,p,v,ty='text')=>`<input class="${c}" type="${ty}" placeholder="${p}" value="${esc(v??'')}">`;
+ const sp=splitAddr(o.url);
+ d.innerHTML=f('n',t('phService'),o.name)+f('a',t('phAddr'),sp.host)+f('p','1234',sp.port||1234,'number')+f('h',t('phHeight'),o.height,'number')+f('vb',t('phVideo'),o.vb,'number')+f('mr',t('phMaxrate'),o.maxrate,'number')+f('bs',t('phBufsize'),o.bufsize,'number')+f('ab','96',o.ab,'number')+f('mux',t('phMux'),o.mux?+(o.mux/1e6).toFixed(2):'','number')+`<button onclick="this.parentNode.remove()">✕</button>`;O.append(d)}
+function tpl(ty){O.innerHTML='';const n=$('#name').value;
+ const FB={sd:{mem_limit:550,preset:'p4',scale_mode:'cpu',bitrate:1000,maxrate:1000,width:600,height:480},
+           hd:{mem_limit:650,preset:'p1',scale_mode:'decoder',bitrate:2000,maxrate:2000,width:1280,height:720}};
+ const T=S.templates||{},sd={...FB.sd,...(T.sd||{})},hd={...FB.hd,...(T.hd||{})};
+ if(ty!='sd')row({name:n+(ty=='both'?' HD':''),height:hd.height,vb:hd.bitrate,maxrate:hd.maxrate});
+ if(ty!='hd')row({name:n+(ty=='both'?' SD':''),height:sd.height,vb:sd.bitrate,maxrate:sd.maxrate});
+ if(ty=='both'){
+  // "decoder" scale mode sets one resolution for the whole channel, incompatible with two different
+  // output resolutions in the same channel - fall back to software scaling in that case.
+  $('#mem').value=hd.mem_limit;$('#preset').value=hd.preset;
+  $('#scaleMode').value=hd.scale_mode=='decoder'?'cpu':hd.scale_mode;
+ }else{
+  const prof=ty=='sd'?sd:hd;
+  $('#mem').value=prof.mem_limit;$('#preset').value=prof.preset;$('#scaleMode').value=prof.scale_mode;
+  if(prof.scale_mode=='decoder'){$('#resizeW').value=prof.width;$('#resizeH').value=prof.height}
+ }
+ onScaleModeChange()}
+function onScaleModeChange(){const mo=$('#scaleMode').value,on=mo=='decoder';
+ $('#resizeWBox').style.display=on?'block':'none';$('#resizeHBox').style.display=on?'block':'none';
+ $('#resizeHint').style.display=on?'block':'none';
+ if(on&&!$('#resizeW').value){const h=+O.querySelector('.h')?.value||720;$('#resizeW').value=h>=720?1280:854;$('#resizeH').value=h||720}}
+
+async function probe(){const b=$('#probeBox'),e=$('#err1');e.textContent='';b.style.display='none';$('#bSkip').style.display='none';
+ if(!$('#name').value.trim()||!$('#inp').value.trim())return e.textContent=t('errNeedNameInput');
+ b.style.display='block';b.innerHTML=t('probeChecking');
+ const r=await api('POST','/api/probe',{input:fullAddr($('#inp').value,$('#inport').value)});
+ if(!r.ok){b.style.display='none';e.textContent=t('probeFailPrefix')+(r.error||t('probeFailUnknown'));$('#bSkip').style.display='inline-block';probed=null;return}
+ probed=r;const v=r.video,a=r.audio;
+ b.innerHTML=`<b>${t('probeFound')}</b><table>
+ <tr><th>${t('probeRes')}</th><td>${v.width}x${v.height}${v.fps?' @ '+v.fps+' fps':''}</td></tr>
+ <tr><th>${t('probeCodec')}</th><td>${esc(v.codec||'—')}</td></tr>
+ <tr><th>${t('probeAudio')}</th><td>${a?esc(a.codec)+(a.bitrate?', '+a.bitrate+' kbps':''):t('probeAudioNone')}</td></tr>
+ </table>`}
+
+function summary(){const o=collect();
+ $('#summary').innerHTML=`<table><tr><th>${t('sumName')}</th><td>${esc(o.name)}</td></tr><tr><th>${t('sumInput')}</th><td>${esc(o.input)}</td></tr>
+ <tr><th>${t('sumGpu')}</th><td>${o.gpu}</td></tr><tr><th>${t('sumMem')}</th><td>${o.mem_limit||t('sumMemNone')}</td></tr>
+ <tr><th>${t('sumFallback')}</th><td>${o.fallback?t('onWord'):t('offWord')}</td></tr>
+ <tr><th>${t('sumPresetBf')}</th><td>${o.preset} / ${o.bframes}</td></tr>
+ <tr><th>${t('sumAqScale')}</th><td>${o.aq?t('onShort'):t('offShort')} / ${t(scaleLbl[o.scale_mode])}</td></tr></table>
+ <table><tr><th>${t('thService')}</th><th>${t('thOutput')}</th><th>${t('thRes')}</th><th>${t('thVideo')}</th><th>${t('thMux')}</th></tr>${o.outputs.map(x=>`<tr><td>${esc(x.name||o.name)}</td><td>${esc(x.url)}</td><td>${x.height?'x'+x.height:t('resNative')}</td><td>${x.vb}k</td><td>${muxDisplay(x)}</td></tr>`).join('')}</table>`;
+ $('#cmdPrev').textContent=`ffmpeg ... -i "${o.input}" -> ` + o.outputs.map(x=>`[${x.name||o.name}] -> ${x.url}`).join('  ,  ');
+}
+
+const wiz={
+ open(){editId=null;$('#name').value='';$('#inp').value='';$('#inport').value=1234;$('#gpu').value=0;$('#mem').value=0;$('#fb').checked=false;
+  $('#preset').value='p4';$('#bframes').value='0';$('#aq').checked=true;$('#scaleMode').value='cpu';$('#resizeW').value='';$('#resizeH').value='';onScaleModeChange();
+  O.innerHTML='';row();probed=null;$('#probeBox').style.display='none';$('#err1').textContent='';$('#err2').textContent='';$('#err3').textContent='';
+  this.go(1);D.showModal()},
+ go(n){this.n=n;for(const i of[1,2,3]){$('#step'+i).style.display=i==n?'block':'none';$('#s'+i).classList.toggle('on',i==n)}
+  $('#bBack').style.display=n>1?'inline-block':'none';$('#bNext').style.display=n<3?'inline-block':'none';
+  $('#bSave').style.display=n==3?'inline-block':'none';$('#bSkip').style.display=(n==1&&!probed&&$('#err1').textContent)?'inline-block':'none';
+  if(n==2&&O.children.length==0)tpl('both');if(n==3)summary()},
+ next(){if(this.n==1){if(!probed)return $('#err1').textContent=t('errProbeFirst');this.go(2)}
+  else if(this.n==2){const err=validate();if(err)return $('#err2').textContent=err;$('#err2').textContent='';this.go(3)}},
+ skip(){this.go(2)},
+ back(){this.go(this.n-1)}
+};
+
+function collect(){const g=(e,c)=>e.querySelector('.'+c).value;
+ return {name:$('#name').value.trim(),input:fullAddr($('#inp').value,$('#inport').value),gpu:+$('#gpu').value||0,mem_limit:+$('#mem').value||0,fallback:$('#fb').checked,
+  preset:$('#preset').value,bframes:+$('#bframes').value,aq:$('#aq').checked,scale_mode:$('#scaleMode').value,resize_w:+$('#resizeW').value||0,resize_h:+$('#resizeH').value||0,
+  outputs:[...O.children].map(e=>({name:g(e,'n'),url:fullAddr(g(e,'a'),g(e,'p')),height:g(e,'h'),vb:g(e,'vb'),maxrate:g(e,'mr'),bufsize:g(e,'bs'),ab:g(e,'ab'),mux:g(e,'mux')?Math.round(parseFloat(g(e,'mux'))*1e6):''}))}}
+function muxDisplay(x){if(x.mux)return (x.mux/1e6).toFixed(2)+' '+t('mbpsUnit');
+ const v=(+x.vb||0)+(+x.ab||96);return '~'+((v*1.15)/1000).toFixed(2)+' '+t('mbpsUnit')+' ('+t('autoWord')+')'}
+function validate(){const o=collect();if(!o.name||!o.input)return t('errFillNameInput');
+ if(!o.outputs.length||o.outputs.some(x=>!x.url||!x.vb))return t('errOutputs');return null}
+
+let editId=null;
+function editCh(id){const c=S.channels.find(x=>x.id==id);editId=id;const sp=splitAddr(c.input);
+ $('#name').value=c.name;$('#inp').value=sp.host;$('#inport').value=sp.port||1234;$('#gpu').value=c.gpu;$('#mem').value=c.mem_limit||0;$('#fb').checked=!!c.fallback;
+ $('#preset').value=c.preset||'p4';$('#bframes').value=String(c.bframes||0);$('#aq').checked=c.aq!==false;
+ $('#scaleMode').value=c.scale_mode||'cpu';$('#resizeW').value=c.resize_w||'';$('#resizeH').value=c.resize_h||'';onScaleModeChange();
+ O.innerHTML='';c.outputs.forEach(row);probed={ok:1};wiz.go(2);D.showModal()}
+
+async function save(){const err=validate();if(err)return $('#err3').textContent=err;
+ const b=collect();const r=await api(editId?'PUT':'POST','/api/channels'+(editId?'/'+editId:''),b);
+ if(r.error){$('#err3').textContent=r.error;return}
+ editId=null;D.close();fetchState()}
+
+async function doImport(file){if(!file)return;
+ try{
+  const text=await file.text();const data=JSON.parse(text);
+  const r=await api('POST','/api/import',data);
+  if(r.error){alert(t('importErrPrefix')+r.error);return}
+  alert(t('importOk1')+r.imported+t('importOk2'));
+  fetchState();
+ }catch(e){alert(t('importReadFail')+e.message)}
+ $('#importFile').value=''}
+
+let schedId=null,schedTimes=[];
+function openSched(id){const c=S.channels.find(x=>x.id==id);if(!c)return;schedId=id;schedTimes=[...(c.schedule||[])];
+ $('#schedTitle').textContent=t('schedTitlePrefix')+' — '+c.name;$('#schedErr').textContent='';$('#schedTime').value='';
+ renderSchedList();SchedD.showModal()}
+function renderSchedList(){$('#schedList').innerHTML=schedTimes.length?schedTimes.map((tm,i)=>
+ `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--b)"><span>${tm}</span><button class="d" onclick="schedTimes.splice(${i},1);renderSchedList()">✕</button></div>`).join('')
+ :`<p class="mt">${t('schedEmpty')}</p>`}
+function addSchedTime(){const tm=$('#schedTime').value;if(!tm)return;if(!schedTimes.includes(tm))schedTimes.push(tm);schedTimes.sort();renderSchedList();$('#schedTime').value=''}
+async function saveSched(){const r=await api('POST',`/api/channels/${schedId}/schedule`,{schedule:schedTimes});
+ if(r.error){$('#schedErr').textContent=r.error;return}
+ SchedD.close();fetchState()}
+
+applyStaticI18n();
+tick();setInterval(tick,2000);
+</script></body></html>
