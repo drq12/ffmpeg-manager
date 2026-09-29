@@ -29,3 +29,4 @@ services:
       - HD_HEIGHT=720
     volumes:
       - ./data:/data
+      - /etc/localtime:/etc/localtime:ro
