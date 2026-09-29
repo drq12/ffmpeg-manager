@@ -141,7 +141,7 @@ def output_args(o, c, vmap, amap, force_cpu_scale=False):
           "-b:v", f"{vb}k", "-maxrate", f"{mr}k", "-bufsize", f"{bs}k"]
     if c.get("aq", True):
         a += ["-spatial-aq", "1", "-temporal-aq", "1", "-aq-strength", "8"]
-    a += ["-f", "mpegts", "-flush_packets", "1", "-muxdelay", "0", "-muxpreload", "0", "-pcr_period", "20",
+    a += ["-f", "mpegts", "-flush_packets", "1", "-muxpreload", "0", "-pcr_period", "20",
           "-metadata", f"service_provider={PROVIDER}", "-metadata", f'service_name={o.get("name") or c["name"]}',
           out_url(o)]
     return a
