@@ -11,10 +11,10 @@ services:
       - SERVICE_PROVIDER=NULL
       - FFMPEG_BIN=ffmpeg    # set a full path if needed, e.g. /usr/local/bin/ffmpeg
       # - HOST_EXEC=         # empty value: run ffmpeg inside the container instead of the host
-      - LANG_UI=ru           # interface language: ru | en | be | ja
+      - LANG_UI=be           # interface language: ru | en | be | ja
       # default values for the SD/HD template buttons in the "add channel" wizard
       - SD_MEM_LIMIT=550     # ffmpeg memory limit, MB (0 = no limit)
-      - SD_PRESET=p4         # NVENC preset: p1..p7
+      - SD_PRESET=p1         # NVENC preset: p1..p7
       - SD_SCALE_MODE=decoder    # cpu | gpu | decoder | none
       - SD_BITRATE=1000      # video bitrate, kbps
       - SD_MAXRATE=1000      # max bitrate, kbps
