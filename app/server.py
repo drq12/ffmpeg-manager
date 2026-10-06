@@ -71,6 +71,14 @@ L = {
                         "en": "scale_mode must be cpu, gpu, decoder or none",
                         "be": "scale_mode павінен быць cpu, gpu, decoder або none",
                         "ja": "scale_modeはcpu、gpu、decoder、noneのいずれかです"},
+    "err_decoder": {"ru": "неверный декодер (ожидается имя вида h264_cuvid)",
+                     "en": "invalid decoder (expected a name like h264_cuvid)",
+                     "be": "няправільны дэкодар (чакаецца імя кшталту h264_cuvid)",
+                     "ja": "デコーダが不正です（h264_cuvidのような名前を指定してください）"},
+    "err_encoder": {"ru": "неверный энкодер (ожидается имя вида h264_nvenc)",
+                     "en": "invalid encoder (expected a name like h264_nvenc)",
+                     "be": "няправільны энкодар (чакаецца імя кшталту h264_nvenc)",
+                     "ja": "エンコーダが不正です（h264_nvencのような名前を指定してください）"},
     "err_schedule_type": {"ru": "расписание должно быть списком времени", "en": "schedule must be a list of times",
                            "be": "расклад павінен быць спісам часу", "ja": "スケジュールは時刻のリストである必要があります"},
     "err_schedule_format": {"ru": "неверный формат времени: «{t}» (ожидается ЧЧ:ММ)",
@@ -135,13 +143,17 @@ def output_args(o, c, vmap, amap, force_cpu_scale=False):
         a += ["-vf", f'{"scale_cuda" if mode == "gpu" else "scale"}=-2:{int(o["height"])}']
     preset = c.get("preset") or "p4"
     bf = int(c.get("bframes") or 0)
-    a += ["-vcodec", "h264_nvenc", "-preset", preset, "-profile:v", "main", "-level", "4.1", "-pix_fmt", "yuv420p",
+    enc = c.get("encoder") or "h264_nvenc"
+    a += ["-vcodec", enc, "-preset", preset, "-profile:v", "main"]
+    if enc == "h264_nvenc":  # HEVC/AV1 NVENC use a different level scheme - let ffmpeg pick a sane default
+        a += ["-level", "4.1"]
+    a += ["-pix_fmt", "yuv420p",
           "-g", "15", "-keyint_min", "15", "-sc_threshold", "0", "-bf", str(bf),
           "-rc", "cbr", "-rc-lookahead", "8", "-tune", "ll",
           "-b:v", f"{vb}k", "-maxrate", f"{mr}k", "-bufsize", f"{bs}k"]
     if c.get("aq", True):
         a += ["-spatial-aq", "1", "-temporal-aq", "1", "-aq-strength", "8"]
-    a += ["-f", "mpegts", "-flush_packets", "1", "-muxpreload", "0", "-pcr_period", "20",
+    a += ["-f", "mpegts", "-flush_packets", "1", "-muxdelay", "0", "-muxpreload", "0", "-pcr_period", "20",
           "-metadata", f"service_provider={PROVIDER}", "-metadata", f'service_name={o.get("name") or c["name"]}',
           out_url(o)]
     return a
@@ -152,7 +164,8 @@ def build_cmd(c):
          # resilience to jitter/corrupt packets on receive, and a faster start
          "-fflags", "+genpts+discardcorrupt", "-err_detect", "ignore_err",
          "-probesize", "1000000", "-analyzeduration", "1000000", "-thread_queue_size", "4096",
-         "-hwaccel_device", str(c.get("gpu", 0)), "-hwaccel_output_format", "cuda", "-c:v", "h264_cuvid",
+         "-hwaccel_device", str(c.get("gpu", 0)), "-hwaccel_output_format", "cuda",
+         "-c:v", c.get("decoder") or "h264_cuvid",
          "-deint", "1", "-drop_second_field", "1"]
     if c.get("scale_mode") == "decoder" and c.get("resize_w") and c.get("resize_h"):
         # scale right at the cuvid decoder: once for the whole channel, no separate -vf per output.
@@ -306,6 +319,8 @@ def save():
 PRESETS = {"p1", "p2", "p3", "p4", "p5", "p6", "p7"}
 SCALE_MODES = {"cpu", "gpu", "decoder", "none"}
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+DECODER_RE = re.compile(r"^[a-z0-9]+_cuvid$")
+ENCODER_RE = re.compile(r"^[a-z0-9]+_nvenc$")
 
 
 def env_int(name, default):
@@ -318,6 +333,36 @@ def env_int(name, default):
 def env_choice(name, default, allowed):
     v = os.environ.get(name, default)
     return v if v in allowed else default
+
+
+CODEC_TO_CUVID = {
+    "h264": "h264_cuvid", "hevc": "hevc_cuvid", "mpeg2video": "mpeg2_cuvid",
+    "mpeg4": "mpeg4_cuvid", "vc1": "vc1_cuvid", "vp8": "vp8_cuvid", "vp9": "vp9_cuvid",
+    "av1": "av1_cuvid", "mjpeg": "mjpeg_cuvid",
+}
+
+
+def detect_caps():
+    """Detect which GPU (cuvid/nvenc) decoders and encoders this ffmpeg build actually supports.
+    Runs once at startup; result is cached in CAPS and exposed via /api/state so the wizard can
+    offer only codecs that will actually work, instead of a hardcoded h264-only list."""
+    dec, enc = [], []
+    try:
+        r = subprocess.run(HOST_EXEC + [FFMPEG, "-hide_banner", "-decoders"],
+                            capture_output=True, text=True, timeout=10)
+        dec = sorted(set(re.findall(r"\b(\w+_cuvid)\b", r.stdout)))
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(HOST_EXEC + [FFMPEG, "-hide_banner", "-encoders"],
+                            capture_output=True, text=True, timeout=10)
+        enc = sorted(set(re.findall(r"\b(\w+_nvenc)\b", r.stdout)))
+    except Exception:
+        pass
+    return {"decoders": dec or ["h264_cuvid"], "encoders": enc or ["h264_nvenc"]}
+
+
+CAPS = detect_caps()
 
 
 # Default values for the SD/HD template buttons in the "add channel" wizard - overridable via docker-compose
@@ -381,10 +426,17 @@ def clean(b):
     mode = b.get("scale_mode") or "cpu"
     if mode not in SCALE_MODES:
         raise ValueError(t("err_scale_mode"))
+    decoder = (b.get("decoder") or "h264_cuvid").strip()
+    if not DECODER_RE.match(decoder):
+        raise ValueError(t("err_decoder"))
+    encoder = (b.get("encoder") or "h264_nvenc").strip()
+    if not ENCODER_RE.match(encoder):
+        raise ValueError(t("err_encoder"))
     return {"name": b["name"].strip(), "input": b["input"].strip(), "gpu": int(b.get("gpu") or 0),
             "mem_limit": int(b.get("mem_limit") or 0), "fallback": bool(b.get("fallback")),
             "preset": preset, "aq": bool(b.get("aq", True)), "bframes": bf,
             "scale_mode": mode, "resize_w": int(b.get("resize_w") or 0), "resize_h": int(b.get("resize_h") or 0),
+            "decoder": decoder, "encoder": encoder,
             "schedule": clean_schedule(b.get("schedule") or []), "outputs": outs}
 
 
@@ -445,7 +497,7 @@ def probe(inp):
                 fps = round(int(n) / int(dd), 2)
         return {"ok": True,
                 "video": {"codec": v.get("codec_name"), "width": v.get("width"), "height": v.get("height"),
-                          "fps": fps},
+                          "fps": fps, "suggested_decoder": CODEC_TO_CUVID.get(v.get("codec_name"))},
                 "audio": {"codec": a.get("codec_name"), "bitrate": int(a["bit_rate"]) // 1000 if a and a.get("bit_rate") else None} if a else None}
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": t("err_probe_timeout")}
@@ -460,7 +512,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(s):
         if s.path == "/api/state":
-            return s.j({"channels": [r.view() for r in R.values()], "templates": TEMPLATES,
+            return s.j({"channels": [r.view() for r in R.values()], "templates": TEMPLATES, "caps": CAPS,
                         "sys": {"cpu": cpu(), "mem": mem(), "gpus": gpus(),
                         "ffmpeg_rss": sum(r.rss for r in R.values())}})
         if s.path == "/api/export":
@@ -530,6 +582,7 @@ if __name__ == "__main__":
             if "scale_mode" not in c:  # migrate from the old boolean scale_gpu field
                 c["scale_mode"] = "gpu" if c.pop("scale_gpu", False) else "cpu"
             c.setdefault("resize_w", 0); c.setdefault("resize_h", 0); c.setdefault("schedule", [])
+            c.setdefault("decoder", "h264_cuvid"); c.setdefault("encoder", "h264_nvenc")
             R[c["id"]] = r = Runner(c)
             if c.get("enabled"): r.start()
     cpu()
