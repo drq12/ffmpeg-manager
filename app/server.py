@@ -147,31 +147,36 @@ def output_args(o, c, vmap, amap, force_cpu_scale=False):
     a += ["-vcodec", enc, "-preset", preset, "-profile:v", "main"]
     if enc == "h264_nvenc":  # HEVC/AV1 NVENC use a different level scheme - let ffmpeg pick a sane default
         a += ["-level", "4.1"]
-    a += ["-pix_fmt", "yuv420p",
+    a += ["-fps_mode", "cfr",
           "-g", "15", "-keyint_min", "15", "-sc_threshold", "0", "-bf", str(bf),
           "-rc", "cbr", "-rc-lookahead", "8", "-tune", "ll",
           "-b:v", f"{vb}k", "-maxrate", f"{mr}k", "-bufsize", f"{bs}k"]
     if c.get("aq", True):
         a += ["-spatial-aq", "1", "-temporal-aq", "1", "-aq-strength", "8"]
-    a += ["-f", "mpegts", "-flush_packets", "1", "-muxdelay", "0", "-muxpreload", "0", "-pcr_period", "20",
+    a += ["-f", "mpegts", "-flush_packets", "1", "-muxpreload", "0", "-pcr_period", "20",
           "-metadata", f"service_provider={PROVIDER}", "-metadata", f'service_name={o.get("name") or c["name"]}',
           out_url(o)]
     return a
 
 
 def build_cmd(c):
-    a = [FFMPEG, "-loglevel", "error", "-nostats", "-progress", "pipe:1", "-isync", "0", "-y",
-         # resilience to jitter/corrupt packets on receive, and a faster start
+    a = [FFMPEG, "-loglevel", "error", "-nostats", "-progress", "pipe:1", "-y",
+         # resilience to jitter/corrupt packets on receive, and a bigger probe window so trickier
+         # streams (e.g. legacy MPEG-2) are identified correctly before decoding starts
          "-fflags", "+genpts+discardcorrupt", "-err_detect", "ignore_err",
-         "-probesize", "1000000", "-analyzeduration", "1000000", "-thread_queue_size", "4096",
-         "-hwaccel_device", str(c.get("gpu", 0)), "-hwaccel_output_format", "cuda",
+         "-probesize", "10000000", "-analyzeduration", "10000000", "-thread_queue_size", "4096",
+         # "-hwaccel cuda" is required to actually establish the CUDA hwaccel context - hwaccel_device
+         # and hwaccel_output_format alone are just modifiers and don't request hw accel on their own
+         "-hwaccel", "cuda", "-hwaccel_device", str(c.get("gpu", 0)), "-hwaccel_output_format", "cuda",
          "-c:v", c.get("decoder") or "h264_cuvid",
          "-deint", "1", "-drop_second_field", "1"]
     if c.get("scale_mode") == "decoder" and c.get("resize_w") and c.get("resize_h"):
         # scale right at the cuvid decoder: once for the whole channel, no separate -vf per output.
         # Only works if every output of the channel shares the same resolution (use cpu/gpu mode otherwise).
         a += ["-resize", f'{int(c["resize_w"])}x{int(c["resize_h"])}']
-    a += ["-vsync", "1", "-re", "-i", in_url(c["input"])]
+    # no -re: the UDP source is already live/real-time, forcing wall-clock pacing on top of it
+    # can fight with network jitter and was a likely contributor to the picture judder reported earlier
+    a += ["-i", in_url(c["input"])]
     for o in c["outputs"]:
         a += output_args(o, c, "0:v:0", "0:a:0")
     return a
