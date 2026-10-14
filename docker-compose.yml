@@ -14,7 +14,7 @@ services:
       - LANG_UI=be           # interface language: ru | en | be | ja
       # default values for the SD/HD template buttons in the "add channel" wizard
       - SD_MEM_LIMIT=550     # ffmpeg memory limit, MB (0 = no limit)
-      - SD_PRESET=p4         # NVENC preset: p1..p7
+      - SD_PRESET=p1         # NVENC preset: p1..p7
       - SD_SCALE_MODE=decoder    # cpu | gpu | decoder | none
       - SD_BITRATE=1000      # video bitrate, kbps
       - SD_MAXRATE=1000      # max bitrate, kbps
