@@ -138,9 +138,17 @@ def output_args(o, c, vmap, amap, force_cpu_scale=False):
     elif mode == "none":
         pass  # scaling disabled - output keeps the decoder's native resolution, height field is ignored
     elif o.get("height"):
-        # scale_cuda scales directly in GPU memory (the frame is already there after hwaccel cuda decode),
-        # avoiding the extra GPU->CPU->GPU copy that a regular software scale filter would need.
-        a += ["-vf", f'{"scale_cuda" if mode == "gpu" else "scale"}=-2:{int(o["height"])}']
+        h = int(o["height"])
+        if mode == "gpu":
+            # scale_cuda scales directly in GPU memory (the frame is already there after hwaccel cuda decode),
+            # avoiding the extra GPU->CPU->GPU copy that a regular software scale filter would need.
+            a += ["-vf", f"scale_cuda=-2:{h}"]
+        else:
+            # Decode runs with -hwaccel cuda, so frames arrive as real CUDA hw frames, not plain system
+            # memory - a bare software "scale" filter cannot read them (filter format negotiation fails:
+            # "Impossible to convert between the formats... src: cuda"). hwdownload pulls the frame to
+            # system memory first so the regular CPU scale filter can run on it.
+            a += ["-vf", f"hwdownload,format=nv12,scale=-2:{h}"]
     preset = c.get("preset") or "p4"
     bf = int(c.get("bframes") or 0)
     enc = c.get("encoder") or "h264_nvenc"
