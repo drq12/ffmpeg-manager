@@ -63,6 +63,7 @@ label{font-size:12px;color:var(--m)}
 <div><label data-t="fDecoder">Декодер входа (NVDEC)</label><select id="decoder" onchange="decoderTouched=true"></select>
 <p class="mt" id="decoderHint" style="display:none"></p></div>
 <div><label data-t="fEncoder">Кодировщик выхода (NVENC)</label><select id="encoder"></select></div>
+<div class="chk" style="align-items:end"><label class="chk"><input type="checkbox" id="deepProbe"> <span data-t="fDeepProbe">Глубокий анализ потока (медленнее старт, помогает с проблемными источниками)</span></label></div>
 </div>
 <div class="g2">
 <div><label data-t="fPreset">Preset NVENC (p1 быстрее/ниже задержка — p7 медленнее/лучше качество)</label>
@@ -126,6 +127,7 @@ ru:{topAutorefresh:"Автообновление",topExport:"Экспорт",top
  fTemplate:"Шаблон",fGpu:"GPU (hwaccel_device)",fMem:"Лимит памяти ffmpeg, МБ (0 = выкл.)",
  fFallback:"Заставка (SMPTE bars) при пропадании сигнала",
  fDecoder:"Декодер входа (NVDEC)",fEncoder:"Кодировщик выхода (NVENC)",
+ fDeepProbe:"Глубокий анализ потока (медленнее старт, помогает с проблемными источниками)",deepProbeShort:"глубокий анализ",
  decoderNotDetected:"⚠ Декодер {d} не обнаружен среди поддерживаемых этим ffmpeg/GPU — проверьте вручную.",
  probeSuggestedDecoder:"Рекомендуемый декодер",sumDecoderEncoder:"Декодер / энкодер",
  fPreset:"Preset NVENC (p1 быстрее/ниже задержка — p7 медленнее/лучше качество)",presetBalanced:"p4 (баланс)",
@@ -168,6 +170,7 @@ en:{topAutorefresh:"Auto-refresh",topExport:"Export",topImport:"Import",topAdd:"
  fTemplate:"Template",fGpu:"GPU (hwaccel_device)",fMem:"ffmpeg memory limit, MB (0 = off)",
  fFallback:"Test pattern (SMPTE bars) on signal loss",
  fDecoder:"Input decoder (NVDEC)",fEncoder:"Output encoder (NVENC)",
+ fDeepProbe:"Deep stream analysis (slower start, helps with problematic sources)",deepProbeShort:"deep analysis",
  decoderNotDetected:"⚠ Decoder {d} was not detected among the ones supported by this ffmpeg/GPU — please verify manually.",
  probeSuggestedDecoder:"Suggested decoder",sumDecoderEncoder:"Decoder / encoder",
  fPreset:"NVENC preset (p1 faster/lower latency — p7 slower/better quality)",presetBalanced:"p4 (balanced)",
@@ -210,6 +213,7 @@ be:{topAutorefresh:"Аўтаабнаўленне",topExport:"Экспарт",top
  fTemplate:"Шаблон",fGpu:"GPU (hwaccel_device)",fMem:"Ліміт памяці ffmpeg, МБ (0 = выкл.)",
  fFallback:"Застаўка (SMPTE bars) пры знікненні сігналу",
  fDecoder:"Дэкодар уваходу (NVDEC)",fEncoder:"Кадзіроўшчык выхаду (NVENC)",
+ fDeepProbe:"Глыбокі аналіз патоку (павольнейшы старт, дапамагае з праблемнымі крыніцамі)",deepProbeShort:"глыбокі аналіз",
  decoderNotDetected:"⚠ Дэкодар {d} не выяўлены сярод падтрымліваемых гэтым ffmpeg/GPU — праверце ўручную.",
  probeSuggestedDecoder:"Рэкамендаваны дэкодар",sumDecoderEncoder:"Дэкодар / энкодар",
  fPreset:"Preset NVENC (p1 хутчэй/менш затрымка — p7 павольней/лепшая якасць)",presetBalanced:"p4 (баланс)",
@@ -252,6 +256,7 @@ ja:{topAutorefresh:"自動更新",topExport:"エクスポート",topImport:"イ�
  fTemplate:"テンプレート",fGpu:"GPU (hwaccel_device)",fMem:"ffmpegのメモリ上限（MB、0=無効）",
  fFallback:"信号消失時にテストパターン（SMPTEバー）を表示",
  fDecoder:"入力デコーダ（NVDEC）",fEncoder:"出力エンコーダ（NVENC）",
+ fDeepProbe:"ストリームの詳細解析（起動が遅くなりますが、問題のあるソースに有効です）",deepProbeShort:"詳細解析",
  decoderNotDetected:"⚠ デコーダ {d} はこのffmpeg/GPUでサポートされているものの中に見つかりませんでした。手動で確認してください。",
  probeSuggestedDecoder:"推奨デコーダ",sumDecoderEncoder:"デコーダ / エンコーダ",
  fPreset:"NVENCプリセット（p1は高速・低遅延、p7は低速・高画質）",presetBalanced:"p4（バランス）",
@@ -412,7 +417,7 @@ function summary(){const o=collect();
  $('#summary').innerHTML=`<table><tr><th>${t('sumName')}</th><td>${esc(o.name)}</td></tr><tr><th>${t('sumInput')}</th><td>${esc(o.input)}</td></tr>
  <tr><th>${t('sumGpu')}</th><td>${o.gpu}</td></tr><tr><th>${t('sumMem')}</th><td>${o.mem_limit||t('sumMemNone')}</td></tr>
  <tr><th>${t('sumFallback')}</th><td>${o.fallback?t('onWord'):t('offWord')}</td></tr>
- <tr><th>${t('sumDecoderEncoder')}</th><td>${o.decoder} / ${o.encoder}</td></tr>
+ <tr><th>${t('sumDecoderEncoder')}</th><td>${o.decoder} / ${o.encoder} (${t('deepProbeShort')}: ${o.deep_probe?t('onShort'):t('offShort')})</td></tr>
  <tr><th>${t('sumPresetBf')}</th><td>${o.preset} / ${o.bframes}</td></tr>
  <tr><th>${t('sumAqScale')}</th><td>${o.aq?t('onShort'):t('offShort')} / ${t(scaleLbl[o.scale_mode])}</td></tr></table>
  <table><tr><th>${t('thService')}</th><th>${t('thOutput')}</th><th>${t('thRes')}</th><th>${t('thVideo')}</th><th>${t('thMux')}</th></tr>${o.outputs.map(x=>`<tr><td>${esc(x.name||o.name)}</td><td>${esc(x.url)}</td><td>${x.height?'x'+x.height:t('resNative')}</td><td>${x.vb}k</td><td>${muxDisplay(x)}</td></tr>`).join('')}</table>`;
@@ -422,7 +427,7 @@ function summary(){const o=collect();
 const wiz={
  open(){editId=null;$('#name').value='';$('#inp').value='';$('#inport').value=1234;$('#gpu').value=0;$('#mem').value=0;$('#fb').checked=false;
   $('#preset').value='p4';$('#bframes').value='0';$('#aq').checked=true;$('#scaleMode').value='cpu';$('#resizeW').value='';$('#resizeH').value='';onScaleModeChange();
-  decoderTouched=false;initCapsSelects('h264_cuvid','h264_nvenc');
+  decoderTouched=false;initCapsSelects('h264_cuvid','h264_nvenc');$('#deepProbe').checked=false;
   O.innerHTML='';row();probed=null;$('#probeBox').style.display='none';$('#err1').textContent='';$('#err2').textContent='';$('#err3').textContent='';
   this.go(1);D.showModal()},
  go(n){this.n=n;for(const i of[1,2,3]){$('#step'+i).style.display=i==n?'block':'none';$('#s'+i).classList.toggle('on',i==n)}
@@ -438,7 +443,7 @@ const wiz={
 function collect(){const g=(e,c)=>e.querySelector('.'+c).value;
  return {name:$('#name').value.trim(),input:fullAddr($('#inp').value,$('#inport').value),gpu:+$('#gpu').value||0,mem_limit:+$('#mem').value||0,fallback:$('#fb').checked,
   preset:$('#preset').value,bframes:+$('#bframes').value,aq:$('#aq').checked,scale_mode:$('#scaleMode').value,resize_w:+$('#resizeW').value||0,resize_h:+$('#resizeH').value||0,
-  decoder:$('#decoder').value,encoder:$('#encoder').value,
+  decoder:$('#decoder').value,encoder:$('#encoder').value,deep_probe:$('#deepProbe').checked,
   outputs:[...O.children].map(e=>({name:g(e,'n'),url:fullAddr(g(e,'a'),g(e,'p')),height:g(e,'h'),vb:g(e,'vb'),maxrate:g(e,'mr'),bufsize:g(e,'bs'),ab:g(e,'ab'),mux:g(e,'mux')?Math.round(parseFloat(g(e,'mux'))*1e6):''}))}}
 function muxDisplay(x){if(x.mux)return (x.mux/1e6).toFixed(2)+' '+t('mbpsUnit');
  const v=(+x.vb||0)+(+x.ab||96);return '~'+((v*1.15)/1000).toFixed(2)+' '+t('mbpsUnit')+' ('+t('autoWord')+')'}
@@ -450,7 +455,7 @@ function editCh(id){const c=S.channels.find(x=>x.id==id);editId=id;const sp=spli
  $('#name').value=c.name;$('#inp').value=sp.host;$('#inport').value=sp.port||1234;$('#gpu').value=c.gpu;$('#mem').value=c.mem_limit||0;$('#fb').checked=!!c.fallback;
  $('#preset').value=c.preset||'p4';$('#bframes').value=String(c.bframes||0);$('#aq').checked=c.aq!==false;
  $('#scaleMode').value=c.scale_mode||'cpu';$('#resizeW').value=c.resize_w||'';$('#resizeH').value=c.resize_h||'';onScaleModeChange();
- decoderTouched=true;initCapsSelects(c.decoder||'h264_cuvid',c.encoder||'h264_nvenc');
+ decoderTouched=true;initCapsSelects(c.decoder||'h264_cuvid',c.encoder||'h264_nvenc');$('#deepProbe').checked=!!c.deep_probe;
  O.innerHTML='';c.outputs.forEach(row);probed={ok:1};wiz.go(2);D.showModal()}
 
 async function save(){const err=validate();if(err)return $('#err3').textContent=err;

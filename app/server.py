@@ -168,11 +168,14 @@ def output_args(o, c, vmap, amap, force_cpu_scale=False):
 
 
 def build_cmd(c):
+    # Deep probe (10M) helps ffmpeg correctly identify tricky streams (e.g. legacy MPEG-2) before
+    # decoding starts, but noticeably slows every channel's startup. Off by default - fast probe
+    # (1M) is enough for most sources; turn it on per-channel only for the ones that need it.
+    probe_sz = "10000000" if c.get("deep_probe") else "1000000"
     a = [FFMPEG, "-loglevel", "error", "-nostats", "-progress", "pipe:1", "-y",
-         # resilience to jitter/corrupt packets on receive, and a bigger probe window so trickier
-         # streams (e.g. legacy MPEG-2) are identified correctly before decoding starts
+         # resilience to jitter/corrupt packets on receive
          "-fflags", "+genpts+discardcorrupt", "-err_detect", "ignore_err",
-         "-probesize", "10000000", "-analyzeduration", "10000000", "-thread_queue_size", "4096",
+         "-probesize", probe_sz, "-analyzeduration", probe_sz, "-thread_queue_size", "4096",
          # "-hwaccel cuda" is required to actually establish the CUDA hwaccel context - hwaccel_device
          # and hwaccel_output_format alone are just modifiers and don't request hw accel on their own
          "-hwaccel", "cuda", "-hwaccel_device", str(c.get("gpu", 0)), "-hwaccel_output_format", "cuda",
@@ -449,7 +452,7 @@ def clean(b):
             "mem_limit": int(b.get("mem_limit") or 0), "fallback": bool(b.get("fallback")),
             "preset": preset, "aq": bool(b.get("aq", True)), "bframes": bf,
             "scale_mode": mode, "resize_w": int(b.get("resize_w") or 0), "resize_h": int(b.get("resize_h") or 0),
-            "decoder": decoder, "encoder": encoder,
+            "decoder": decoder, "encoder": encoder, "deep_probe": bool(b.get("deep_probe")),
             "schedule": clean_schedule(b.get("schedule") or []), "outputs": outs}
 
 
@@ -596,6 +599,7 @@ if __name__ == "__main__":
                 c["scale_mode"] = "gpu" if c.pop("scale_gpu", False) else "cpu"
             c.setdefault("resize_w", 0); c.setdefault("resize_h", 0); c.setdefault("schedule", [])
             c.setdefault("decoder", "h264_cuvid"); c.setdefault("encoder", "h264_nvenc")
+            c.setdefault("deep_probe", False)
             R[c["id"]] = r = Runner(c)
             if c.get("enabled"): r.start()
     cpu()
